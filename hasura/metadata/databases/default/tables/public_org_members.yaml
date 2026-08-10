@@ -1,0 +1,78 @@
+table:
+  name: org_members
+  schema: public
+object_relationships:
+  - name: org
+    using:
+      foreign_key_constraint_on: org_id
+  - name: user
+    using:
+      foreign_key_constraint_on: user_id
+  - name: org_role
+    using:
+      foreign_key_constraint_on: role
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - id
+        - org_id
+        - user_id
+        - role
+        - created_at
+      # You can see the membership list of any org you belong to. Note the
+      # nested shape: the row's org must contain a membership row for the
+      # caller. Guessing another org's id returns zero rows, not a 403.
+      filter:
+        org:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+      allow_aggregations: true
+insert_permissions:
+  - role: user
+    permission:
+      columns:
+        - org_id
+        - user_id
+        - role
+      # LAYER 1, role clause. Membership management is owner-only, and the
+      # owner check is scoped to the org the new row points at — so an owner of
+      # Org A cannot add themselves to Org B.
+      check:
+        org:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+            role:
+              _eq: owner
+    comment: Only an owner of that specific org may add members.
+update_permissions:
+  - role: user
+    permission:
+      columns:
+        - role
+      filter:
+        org:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+            role:
+              _eq: owner
+      check:
+        org:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+            role:
+              _eq: owner
+delete_permissions:
+  - role: user
+    permission:
+      filter:
+        org:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+            role:
+              _eq: owner

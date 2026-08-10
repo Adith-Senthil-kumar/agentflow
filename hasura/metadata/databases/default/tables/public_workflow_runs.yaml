@@ -1,0 +1,59 @@
+table:
+  name: workflow_runs
+  schema: public
+object_relationships:
+  - name: workflow
+    using:
+      foreign_key_constraint_on: workflow_id
+  - name: organization
+    using:
+      foreign_key_constraint_on: org_id
+  - name: triggered_by_user
+    using:
+      foreign_key_constraint_on: triggered_by
+  - name: run_status
+    using:
+      foreign_key_constraint_on: status
+array_relationships:
+  - name: step_runs
+    using:
+      foreign_key_constraint_on:
+        column: workflow_run_id
+        table:
+          name: step_runs
+          schema: public
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - id
+        - workflow_id
+        - org_id
+        - status
+        - trigger_type
+        - triggered_by
+        - context
+        - error
+        - cursor
+        - started_at
+        - finished_at
+        - created_at
+        - updated_at
+      # Deliberately traverses workflow -> org -> members rather than filtering
+      # on this table's own denormalised org_id, so isolation does not depend on
+      # that column having been written correctly.
+      filter:
+        workflow:
+          org:
+            members:
+              user_id:
+                _eq: X-Hasura-User-Id
+      allow_aggregations: true
+# NO insert/update/delete permissions for role `user`, by design.
+#
+# Runs are created exclusively by the triggerWorkflowRun Action handler, which
+# runs as admin *after* checking the caller's org role. If clients could insert
+# workflow_runs directly, a viewer could start a run by writing the row itself
+# and skipping the Run button — the UI hiding the button would be the only
+# thing stopping them. Likewise, no update permission means a client cannot
+# flip a `paused` run to `running` to bypass an approval gate.

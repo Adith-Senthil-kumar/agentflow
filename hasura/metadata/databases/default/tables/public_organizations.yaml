@@ -1,0 +1,67 @@
+table:
+  name: organizations
+  schema: public
+array_relationships:
+  - name: members
+    using:
+      foreign_key_constraint_on:
+        column: org_id
+        table:
+          name: org_members
+          schema: public
+  - name: workflows
+    using:
+      foreign_key_constraint_on:
+        column: org_id
+        table:
+          name: workflows
+          schema: public
+object_relationships:
+  - name: usage
+    using:
+      manual_configuration:
+        column_mapping:
+          id: org_id
+        insertion_order: null
+        remote_table:
+          name: org_usage_current_month
+          schema: public
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - id
+        - name
+        - slug
+        - quota_limit
+        - quota_used
+        - quota_period_start
+        - created_at
+      # LAYER 1. An organization is visible only to its own members. There is no
+      # role clause here because every role can read its own org.
+      filter:
+        members:
+          user_id:
+            _eq: X-Hasura-User-Id
+      allow_aggregations: false
+    comment: Visible only to members of the org.
+update_permissions:
+  - role: user
+    permission:
+      columns:
+        - name
+      filter:
+        members:
+          user_id:
+            _eq: X-Hasura-User-Id
+          role:
+            _eq: owner
+      check:
+        members:
+          user_id:
+            _eq: X-Hasura-User-Id
+          role:
+            _eq: owner
+    comment: >-
+      Owners may rename their org. Quota columns are deliberately not updatable
+      by any client role; only the executor (admin) moves them.

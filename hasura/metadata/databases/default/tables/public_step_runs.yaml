@@ -1,0 +1,57 @@
+table:
+  name: step_runs
+  schema: public
+object_relationships:
+  - name: workflow_run
+    using:
+      foreign_key_constraint_on: workflow_run_id
+  - name: step
+    using:
+      foreign_key_constraint_on: step_id
+  - name: approver
+    using:
+      foreign_key_constraint_on: approved_by
+  - name: step_run_status
+    using:
+      foreign_key_constraint_on: status
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - id
+        - workflow_run_id
+        - step_id
+        - position
+        - type
+        - name
+        - status
+        - input
+        - output
+        - error
+        - attempt
+        - approved_by
+        - approved_at
+        - started_at
+        - finished_at
+        - created_at
+        - updated_at
+      # This is the table the live subscription watches. The same filter applies
+      # to the subscription as to a query, so an Org B user subscribing with a
+      # guessed workflow_run_id receives an empty stream rather than an error —
+      # there is no leak of "this run exists".
+      filter:
+        workflow_run:
+          workflow:
+            org:
+              members:
+                user_id:
+                  _eq: X-Hasura-User-Id
+      allow_aggregations: true
+# NO insert/update/delete for role `user`.
+#
+# This is what makes the approval gate real. `approved_by` / `approved_at` and
+# `status` can only be written by the approveStep Action handler, which checks
+# the approver's role in that specific org before resuming. If step_runs had an
+# update permission, approving would reduce to a row write and any editor —
+# including one in another org, if the filter were ever loosened — could clear
+# a gate without the handler's mid-execution checks ever running.

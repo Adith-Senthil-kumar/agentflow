@@ -1,0 +1,24 @@
+# Tracked so the executor can call them over GraphQL instead of shipping raw SQL
+# from the application. None of them declare a role permission, so they are
+# reachable by the admin-secret client only and are absent from the schema every
+# browser session sees.
+- function:
+    name: consume_org_quota
+    schema: public
+  configuration:
+    exposed_as: mutation
+- function:
+    name: refund_org_quota
+    schema: public
+  configuration:
+    exposed_as: mutation
+- function:
+    name: acquire_run_lock
+    schema: public
+  configuration:
+    exposed_as: mutation
+- function:
+    name: release_run_lock
+    schema: public
+  configuration:
+    exposed_as: mutation

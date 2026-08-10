@@ -1,0 +1,10 @@
+table:
+  name: step_run_statuses
+  schema: public
+select_permissions:
+  - role: user
+    permission:
+      columns: '*'
+      filter: {}
+      allow_aggregations: false
+    comment: Static reference data. Readable by any authenticated user.

@@ -1,0 +1,178 @@
+table:
+  name: workflow_steps
+  schema: public
+object_relationships:
+  - name: workflow
+    using:
+      foreign_key_constraint_on: workflow_id
+  - name: step_type
+    using:
+      foreign_key_constraint_on: type
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - id
+        - workflow_id
+        - position
+        - type
+        - name
+        - config
+        - created_at
+        - updated_at
+      filter:
+        workflow:
+          org:
+            members:
+              user_id:
+                _eq: X-Hasura-User-Id
+      allow_aggregations: true
+insert_permissions:
+  - role: user
+    permission:
+      columns:
+        - workflow_id
+        - position
+        - type
+        - name
+        - config
+      # ----------------------------------------------------------------------
+      # LAYER 2 — step-level gating.
+      #
+      # Layer 1 (org + role scoping) is the `workflow.org.members` traversal,
+      # which appears in both branches. Layer 2 is the `step_type.owner_only`
+      # clause, which makes the *required role* depend on the type of step
+      # being inserted:
+      #
+      #   owner_only = false (llm_call, http_request, conditional_branch,
+      #                       approval_gate)  -> owner or editor
+      #   owner_only = true  (db_write, notify)
+      #                                       -> owner only
+      #
+      # The list of owner-only types lives in the step_types table, so this
+      # rule never has to be edited when a new step type is added — and the UI
+      # reads the same column to decide what to grey out.
+      # ----------------------------------------------------------------------
+      check:
+        _or:
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner
+    comment: >-
+      Layer 1 + Layer 2. Editors may add sandboxed step types; only owners may
+      add step types flagged owner_only (db_write, notify).
+update_permissions:
+  - role: user
+    permission:
+      columns:
+        - position
+        - name
+        - config
+        # `type` is intentionally NOT updatable. Otherwise an editor could
+        # insert an llm_call step (allowed) and then mutate it into a db_write
+        # step, side-stepping the insert gate entirely.
+      filter:
+        _or:
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner
+      check:
+        _or:
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner
+    comment: >-
+      Same two-layer rule as insert. `type` is not in the updatable column list
+      so an allowed step cannot be mutated into a gated one.
+delete_permissions:
+  - role: user
+    permission:
+      filter:
+        _or:
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - step_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner

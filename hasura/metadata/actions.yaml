@@ -1,0 +1,73 @@
+actions:
+  - name: triggerWorkflowRun
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/api/actions/trigger-workflow-run'
+      forward_client_headers: false
+      headers:
+        - name: x-agentflow-secret
+          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+      timeout: 30
+    permissions:
+      - role: user
+    comment: >-
+      Hasura passes session_variables (including x-hasura-user-id) in the request
+      body. forward_client_headers is off so the handler can never be influenced
+      by a client-supplied header — the identity it trusts comes from Hasura's
+      JWT verification alone.
+
+  - name: approveStep
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/api/actions/approve-step'
+      forward_client_headers: false
+      headers:
+        - name: x-agentflow-secret
+          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+      timeout: 30
+    permissions:
+      - role: user
+    comment: >-
+      The only path that can clear an approval_gate. step_runs has no update
+      permission for any client role, so this handler is not merely the
+      convenient way to approve — it is the only way.
+
+  - name: triggerWorkflowByWebhook
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/api/actions/trigger-by-webhook'
+      forward_client_headers: false
+      headers:
+        - name: x-agentflow-secret
+          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+      timeout: 30
+    permissions:
+      - role: public
+    comment: >-
+      Exposed to the unauthenticated role. Authorisation is the webhook_token
+      itself, which is looked up server-side to resolve the org — a caller
+      cannot name a workflow, only present a token that maps to one.
+
+  - name: getWebhookEndpoint
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/api/actions/get-webhook-endpoint'
+      forward_client_headers: false
+      headers:
+        - name: x-agentflow-secret
+          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+      timeout: 15
+      type: query
+    permissions:
+      - role: user
+    comment: Owner-only reveal of a webhook trigger's secret URL.
+
+custom_types:
+  enums:
+    - name: ApprovalDecision
+  input_objects: []
+  objects:
+    - name: TriggerRunOutput
+    - name: ApproveStepOutput
+    - name: WebhookEndpointOutput
+  scalars: []

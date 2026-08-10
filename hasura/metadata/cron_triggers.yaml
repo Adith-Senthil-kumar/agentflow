@@ -1,0 +1,19 @@
+- name: scheduled_workflow_dispatch
+  webhook: '{{ACTION_BASE_URL}}/api/cron/dispatch'
+  schedule: '* * * * *'
+  include_in_metadata: true
+  payload: {}
+  retry_conf:
+    num_retries: 1
+    retry_interval_seconds: 10
+    timeout_seconds: 60
+    tolerance_seconds: 21600
+  headers:
+    - name: x-agentflow-secret
+      value_from_env: AGENTFLOW_WEBHOOK_SECRET
+  comment: >-
+    Fires every minute. The dispatcher reads workflow_triggers of type
+    `scheduled`, evaluates each row's own cron expression against the current
+    minute, and starts runs for the ones that are due. One Hasura cron trigger
+    therefore supports per-workflow schedules without needing metadata changes
+    when a user edits a schedule in the UI.

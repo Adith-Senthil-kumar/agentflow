@@ -1,0 +1,40 @@
+table:
+  name: org_usage_current_month
+  schema: public
+object_relationships:
+  - name: organization
+    using:
+      manual_configuration:
+        column_mapping:
+          org_id: id
+        insertion_order: null
+        remote_table:
+          name: organizations
+          schema: public
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - org_id
+        - quota_limit
+        - quota_used
+        - quota_remaining
+        - quota_period_start
+        - runs_this_month
+        - succeeded_runs
+        - failed_runs
+        - paused_runs
+        - steps_executed
+        - avg_run_seconds
+      # The view has no membership columns of its own, so the permission hops
+      # through the manual relationship back to organizations. Same isolation
+      # guarantee as every other table.
+      filter:
+        organization:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+      allow_aggregations: false
+    comment: >-
+      Required org-level aggregation: quota position, run counts and average run
+      duration for the current calendar month.

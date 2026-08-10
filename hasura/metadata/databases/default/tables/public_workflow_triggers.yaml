@@ -1,0 +1,164 @@
+table:
+  name: workflow_triggers
+  schema: public
+object_relationships:
+  - name: workflow
+    using:
+      foreign_key_constraint_on: workflow_id
+  - name: trigger_type
+    using:
+      foreign_key_constraint_on: type
+select_permissions:
+  - role: user
+    permission:
+      # `webhook_token` is absent from this list. Holding it is enough to start
+      # a run from outside, and Hasura column permissions are per-role, not
+      # per-row, so it cannot be shown to owners but hidden from editors here.
+      # Owners retrieve the full endpoint through the getWebhookEndpoint
+      # Action, which does the role check in the handler.
+      columns:
+        - id
+        - workflow_id
+        - type
+        - config
+        - cron
+        - is_active
+        - last_fired_at
+        - created_at
+        - updated_at
+      filter:
+        workflow:
+          org:
+            members:
+              user_id:
+                _eq: X-Hasura-User-Id
+      allow_aggregations: true
+insert_permissions:
+  - role: user
+    permission:
+      columns:
+        - workflow_id
+        - type
+        - config
+        - cron
+        - is_active
+      # LAYER 2 again, same data-driven shape: trigger_types.owner_only marks
+      # `webhook` as owner-only, because an inbound webhook is an unauthenticated
+      # door into the org's workflows.
+      check:
+        _or:
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner
+    comment: >-
+      Only owners may attach a webhook trigger. The token itself is generated
+      server-side by a database default path, never supplied by the client.
+update_permissions:
+  - role: user
+    permission:
+      columns:
+        - config
+        - cron
+        - is_active
+      filter:
+        _or:
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner
+      check:
+        _or:
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner
+delete_permissions:
+  - role: user
+    permission:
+      filter:
+        _or:
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: false
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _in:
+                          - owner
+                          - editor
+          - _and:
+              - trigger_type:
+                  owner_only:
+                    _eq: true
+              - workflow:
+                  org:
+                    members:
+                      user_id:
+                        _eq: X-Hasura-User-Id
+                      role:
+                        _eq: owner

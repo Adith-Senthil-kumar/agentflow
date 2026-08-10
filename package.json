@@ -1,0 +1,36 @@
+{
+  "name": "agentflow",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "seed": "node scripts/seed.mjs",
+    "verify": "node scripts/verify-isolation.mjs",
+    "demo:webhook": "node scripts/demo-webhook.mjs",
+    "hasura:apply": "bash scripts/hasura-apply.sh"
+  },
+  "dependencies": {
+    "@apollo/client": "^4.2.10",
+    "@nhost/nhost-js": "^4.8.0",
+    "graphql": "^16.14.2",
+    "graphql-ws": "^6.2.1",
+    "next": "15.5.23",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.23",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

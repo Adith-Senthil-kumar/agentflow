@@ -1,0 +1,10 @@
+table:
+  name: org_roles
+  schema: public
+select_permissions:
+  - role: user
+    permission:
+      columns: '*'
+      filter: {}
+      allow_aggregations: false
+    comment: Static reference data. Readable by any authenticated user.

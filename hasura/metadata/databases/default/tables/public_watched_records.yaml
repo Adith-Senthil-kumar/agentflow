@@ -1,0 +1,61 @@
+table:
+  name: watched_records
+  schema: public
+object_relationships:
+  - name: organization
+    using:
+      foreign_key_constraint_on: org_id
+select_permissions:
+  - role: user
+    permission:
+      columns:
+        - id
+        - org_id
+        - kind
+        - payload
+        - created_by
+        - created_at
+      filter:
+        organization:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+      allow_aggregations: true
+insert_permissions:
+  - role: user
+    permission:
+      columns:
+        - org_id
+        - kind
+        - payload
+      # owner|editor may create a watched record in their own org. Inserting one
+      # indirectly starts a run, so viewers are excluded here for the same
+      # reason they cannot press Run.
+      check:
+        organization:
+          members:
+            user_id:
+              _eq: X-Hasura-User-Id
+            role:
+              _in:
+                - owner
+                - editor
+      set:
+        created_by: X-Hasura-User-Id
+event_triggers:
+  - name: watched_record_created
+    definition:
+      enable_manual: true
+      insert:
+        columns: '*'
+    retry_conf:
+      interval_sec: 10
+      num_retries: 2
+      timeout_sec: 60
+    webhook: '{{ACTION_BASE_URL}}/api/events/watched-record'
+    headers:
+      - name: x-agentflow-secret
+        value_from_env: AGENTFLOW_WEBHOOK_SECRET
+    comment: >-
+      Database-event trigger. Inserting a row here starts a run of every active
+      database_event workflow in the same org, with no button click.

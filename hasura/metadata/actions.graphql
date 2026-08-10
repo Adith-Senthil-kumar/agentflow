@@ -1,0 +1,72 @@
+type Mutation {
+  """
+  Starts a run of a workflow. The handler verifies the caller is owner|editor in
+  the workflow's org, reserves quota, creates the workflow_run, and returns
+  immediately — execution continues asynchronously so the client can subscribe.
+  """
+  triggerWorkflowRun(
+    workflow_id: uuid!
+    input: jsonb
+  ): TriggerRunOutput!
+}
+
+type Mutation {
+  """
+  Approves or rejects a step_run that is paused at an approval_gate, then
+  resumes (or terminates) the run. The role check happens in the handler, not in
+  a row permission, because it is a mid-execution decision.
+  """
+  approveStep(
+    step_run_id: uuid!
+    decision: ApprovalDecision!
+    comment: String
+  ): ApproveStepOutput!
+}
+
+type Mutation {
+  """
+  Inbound endpoint for external systems. Authenticated by the trigger's own
+  webhook token rather than by a user session, so it is exposed to the
+  unauthenticated `public` role.
+  """
+  triggerWorkflowByWebhook(
+    webhook_token: String!
+    payload: jsonb
+  ): TriggerRunOutput!
+}
+
+type Query {
+  """
+  Returns the callable URL for a webhook trigger, including its secret token.
+  Owner-only, enforced in the handler — the token column is not selectable
+  through the normal GraphQL API by any role.
+  """
+  getWebhookEndpoint(trigger_id: uuid!): WebhookEndpointOutput!
+}
+
+enum ApprovalDecision {
+  approve
+  reject
+}
+
+type TriggerRunOutput {
+  run_id: uuid
+  status: String!
+  message: String
+  quota_used: Int
+  quota_limit: Int
+}
+
+type ApproveStepOutput {
+  step_run_id: uuid!
+  run_id: uuid!
+  run_status: String!
+  message: String
+}
+
+type WebhookEndpointOutput {
+  trigger_id: uuid!
+  url: String!
+  method: String!
+  sample_curl: String!
+}
