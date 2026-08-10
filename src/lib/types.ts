@@ -27,20 +27,6 @@ export type StepRunStatus =
   | 'skipped'
   | 'rejected';
 
-/**
- * Step types that reach outside the sandbox. Mirrors `step_types.owner_only` in
- * the database, which is what the Hasura permission rule reads. The handler
- * re-derives the same answer from the database rather than trusting this list,
- * so the two can never silently diverge — this constant exists only so the UI
- * can grey out controls without an extra round trip.
- */
-export const OWNER_ONLY_STEP_TYPES: StepType[] = ['db_write', 'notify'];
-export const OWNER_ONLY_TRIGGER_TYPES: TriggerType[] = ['webhook'];
-
-export const ROLES_THAT_CAN_RUN: OrgRole[] = ['owner', 'editor'];
-export const ROLES_THAT_CAN_APPROVE: OrgRole[] = ['owner', 'editor'];
-export const ROLES_THAT_CAN_EDIT: OrgRole[] = ['owner', 'editor'];
-
 export type ComparisonOperator =
   | 'contains'
   | 'not_contains'

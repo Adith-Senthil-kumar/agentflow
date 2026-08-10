@@ -53,7 +53,3 @@ export function sessionUserId(
   const id = payload.session_variables?.['x-hasura-user-id'];
   return id && id !== 'null' ? id : null;
 }
-
-export function sessionRole(payload: HasuraActionPayload<unknown>): string {
-  return payload.session_variables?.['x-hasura-role'] ?? 'public';
-}

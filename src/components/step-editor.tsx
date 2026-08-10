@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Field, Input, Select, Textarea } from './ui';
 import type { StepType } from '@/lib/types';
 
@@ -317,21 +316,4 @@ export function StepConfigForm({
       </Field>
     </div>
   );
-}
-
-export function useDraft<T>(initial: T) {
-  const [value, setValue] = useState<T>(initial);
-  const [dirty, setDirty] = useState(false);
-  return {
-    value,
-    dirty,
-    set: (next: T) => {
-      setValue(next);
-      setDirty(true);
-    },
-    reset: (next: T) => {
-      setValue(next);
-      setDirty(false);
-    },
-  };
 }
