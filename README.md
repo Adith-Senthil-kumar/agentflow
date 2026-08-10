@@ -117,6 +117,11 @@ editors, that a step cannot be escalated into a gated type by update, that
 `step_runs` cannot be written directly to clear an approval gate, and that the
 Actions refuse cross-org callers without revealing whether the target exists.
 
+If sign-in starts failing — closed connections, empty responses, HTTP 429 —
+that is nhost's brute-force protection, which counts sign-in attempts per IP over
+a rolling few minutes. This suite spends four per run, so a few runs back to back
+will trip it. Wait a few minutes; nothing is broken.
+
 Start a run the way an external system would:
 
 ```bash

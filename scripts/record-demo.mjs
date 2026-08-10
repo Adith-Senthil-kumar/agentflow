@@ -13,9 +13,6 @@
  * single side-by-side MP4 is done afterwards by scripts/stitch-demo.sh.
  */
 
-import { setDefaultResultOrder } from 'node:dns';
-setDefaultResultOrder('ipv4first');
-
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

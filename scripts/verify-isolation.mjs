@@ -10,14 +10,9 @@
  *   npm run verify
  */
 
-import { setDefaultResultOrder } from 'node:dns';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-// Some networks resolve nhost to an IPv6 address that Node reaches less
-// reliably than curl does. Prefer IPv4 so the suite behaves the same everywhere.
-setDefaultResultOrder('ipv4first');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -74,14 +69,15 @@ async function gql(token, query, variables = {}) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Signs in, retrying on transport errors and empty bodies.
+ * Signs in, backing off when nhost's brute-force protection kicks in.
  *
- * nhost rate-limits its auth endpoints, and this script signs four users in
- * every time it runs, so a burst of consecutive runs can trip the limit and get
- * a closed socket rather than a clean error. Backing off keeps the suite
- * dependable enough to run repeatedly.
+ * That limiter counts sign-in attempts per IP over a rolling few minutes, and
+ * this suite spends four of them per run. Two or three runs in quick succession
+ * is enough to trip it, and it presents as a 429 with an empty body — or, if the
+ * connection is dropped rather than answered, as a bare transport error that
+ * looks nothing like rate limiting. Both are treated the same here.
  */
-async function signIn(email, attempts = 5) {
+async function signIn(email, attempts = 6) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -91,17 +87,26 @@ async function signIn(email, attempts = 5) {
         body: JSON.stringify({ email, password: PASSWORD }),
       });
       const text = await res.text();
-      if (!text) throw new Error(`empty response (HTTP ${res.status})`);
+      if (res.status === 429 || !text) {
+        throw new Error(`rate limited (HTTP ${res.status}) — waiting for the window to clear`);
+      }
       const body = JSON.parse(text);
       const token = body?.session?.accessToken;
       if (!token) throw new Error(JSON.stringify(body));
       return token;
     } catch (err) {
       lastError = err;
-      if (attempt < attempts) await sleep(3000 * attempt);
+      if (attempt < attempts) {
+        const wait = 5000 * attempt;
+        console.log(`    ${email}: ${err.message}; retrying in ${wait / 1000}s`);
+        await sleep(wait);
+      }
     }
   }
-  throw new Error(`Could not sign in as ${email} after ${attempts} attempts: ${lastError}`);
+  throw new Error(
+    `Could not sign in as ${email} after ${attempts} attempts: ${lastError}\n` +
+      `If this says rate limited, wait ~5 minutes — nhost limits sign-ins per IP.`,
+  );
 }
 
 const isPermissionError = (r) =>
