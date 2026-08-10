@@ -15,8 +15,12 @@ export interface MembershipRow {
 }
 
 export function useMyOrgs() {
-  const { data, loading, error } = useQuery<{ org_members: MembershipRow[] }>(MY_ORGS);
-  return { memberships: data?.org_members ?? [], loading, error };
+  const { userId } = useAuth();
+  const { data, loading, error } = useQuery<{ org_members: MembershipRow[] }>(MY_ORGS, {
+    variables: { userId },
+    skip: !userId,
+  });
+  return { memberships: data?.org_members ?? [], loading: loading || !userId, error };
 }
 
 /** The caller's role in one org, or null when they are not a member of it. */

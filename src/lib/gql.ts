@@ -7,9 +7,22 @@ import { gql } from '@apollo/client';
  * org's id simply returns nothing.
  * ------------------------------------------------------------------------- */
 
+/**
+ * The caller's own memberships.
+ *
+ * The `user_id` filter is a correctness filter, not a security one: the select
+ * permission on org_members deliberately exposes every membership row of an org
+ * you belong to, so the org list and the member roster can share one table. That
+ * means "my orgs" has to narrow to my own rows — otherwise an org with three
+ * members appears three times, and reading a role off the first match returns
+ * some other member's role.
+ */
 export const MY_ORGS = gql`
-  query MyOrgs {
-    org_members(order_by: { org: { name: asc } }) {
+  query MyOrgs($userId: uuid!) {
+    org_members(
+      where: { user_id: { _eq: $userId } }
+      order_by: { org: { name: asc } }
+    ) {
       id
       role
       org {
