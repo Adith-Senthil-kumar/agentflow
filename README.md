@@ -23,9 +23,10 @@ Built on **nhost** (PostgreSQL + Hasura + Auth), **Hasura GraphQL Engine**
 | Actions (incl. inbound webhook) | [`hasura/metadata/actions.yaml`](hasura/metadata/actions.yaml), [`actions.graphql`](hasura/metadata/actions.graphql) |
 | Cron trigger | [`hasura/metadata/cron_triggers.yaml`](hasura/metadata/cron_triggers.yaml) |
 | Event triggers | inside `public_notifications.yaml`, `public_watched_records.yaml` |
-| Workflow executor | [`src/lib/executor.ts`](src/lib/executor.ts) |
-| Step implementations | [`src/lib/steps/`](src/lib/steps) |
-| Action / Event / Cron handlers | [`src/app/api/`](src/app/api) |
+| Workflow executor | [`functions/_lib/executor.ts`](functions/_lib/executor.ts) |
+| Step implementations | [`functions/_lib/steps/`](functions/_lib/steps) |
+| Action / Event / Cron handlers | [`functions/`](functions) — nhost serverless functions |
+| Shared backend code | [`functions/_lib/`](functions/_lib) (`_`-prefixed, so not routed) |
 | Frontend | [`src/app/`](src/app), [`src/components/`](src/components) |
 | Cross-org isolation test suite | [`scripts/verify-isolation.mjs`](scripts/verify-isolation.mjs) |
 
@@ -93,12 +94,12 @@ Password for all four: `Password123!`
 npm run dev
 ```
 
-> **One caveat about local development.** Hasura runs in nhost's cloud, so it
-> cannot call Action, Event, or Cron handlers on `http://localhost:3000`.
-> Queries, mutations, subscriptions and every row permission work fine locally;
-> anything that goes *through* a Hasura Action needs `ACTION_BASE_URL` to point at
-> a publicly reachable origin. Either point it at the deployed app, or expose your
-> dev server with a tunnel and re-run `npm run hasura:apply`.
+> **One caveat about local development.** The Action, Event and Cron handlers are
+> nhost serverless functions, deployed to your nhost project rather than served by
+> `next dev`. Queries, mutations, subscriptions and every row permission work
+> against the cloud backend from a local frontend; anything that goes *through* a
+> Hasura Action runs on the deployed functions. Use `nhost up` if you want the
+> whole stack locally (requires Docker).
 
 ---
 
@@ -126,38 +127,61 @@ npm run demo:webhook -- "Coffee machine is out of beans"     # takes the other b
 
 ## Deployment
 
-The app deploys as a single Next.js project; the Action, Event Trigger, and Cron
-handlers are API routes in the same deployment, so there is one thing to deploy
-and the executor sits next to the UI that watches it.
+Two pieces deploy to two places, which is what the stack asks for:
 
-1. Deploy to Vercel and set these environment variables:
+- **Backend handlers** — the four Actions, two Event Triggers and the Cron
+  dispatcher live in [`functions/`](functions) and deploy to **nhost** when you
+  push to a connected GitHub repository.
+- **Frontend** — the Next.js app deploys to **Vercel**. It contains no API
+  routes; it is a pure client of the GraphQL API.
 
-   `NEXT_PUBLIC_NHOST_SUBDOMAIN`, `NEXT_PUBLIC_NHOST_REGION`, `HASURA_GRAPHQL_URL`,
-   `HASURA_GRAPHQL_ADMIN_SECRET`, `AGENTFLOW_WEBHOOK_SECRET`, `GROQ_API_KEY`,
-   `GROQ_MODEL`, and `ACTION_BASE_URL` set to the deployment's own origin.
+### 1. Connect the repo to nhost
 
-2. Point Hasura at the deployment:
+In the nhost dashboard, open your project → **Git** → connect this GitHub
+repository, leaving the base folder as `/`. Pushing to the connected branch
+deploys everything under `functions/`.
 
-   ```bash
-   # in .env.local
-   ACTION_BASE_URL=https://your-app.vercel.app
-   npm run hasura:apply
-   ```
+### 2. Add two project environment variables
+
+nhost injects `NHOST_GRAPHQL_URL`, `NHOST_ADMIN_SECRET` and friends into every
+function, so only the two values it cannot know need setting under
+**Settings → Environment Variables**:
+
+| Variable | Value |
+| --- | --- |
+| `AGENTFLOW_WEBHOOK_SECRET` | the same secret as in your `.env.local` |
+| `GROQ_API_KEY` | your Groq key (omit to run the disclosed LLM stub) |
+
+Optionally `SLACK_WEBHOOK_URL` to make `notify` deliver for real instead of
+recording `simulated`.
+
+### 3. Point Hasura at the functions
+
+```bash
+# in .env.local
+ACTION_BASE_URL=https://<subdomain>.functions.<region>.nhost.run/v1
+npm run hasura:apply
+```
+
+### 4. Deploy the frontend
+
+Any Vercel import of this repo works. It needs only
+`NEXT_PUBLIC_NHOST_SUBDOMAIN` and `NEXT_PUBLIC_NHOST_REGION` — no secrets,
+because the browser talks to Hasura with the user's own JWT and nothing else.
 
 ### A note on `{{ACTION_BASE_URL}}`
 
 Tracked metadata refers to the handler host as `{{ACTION_BASE_URL}}` and to the
 shared secret as `value_from_env: AGENTFLOW_WEBHOOK_SECRET`, which is the
 idiomatic Hasura way to keep environment-specific values out of version control.
-Hasura normally resolves those from its own environment — on nhost, variables added
-in the project dashboard.
+Hasura normally resolves those from its own environment — on nhost, variables
+added in the project dashboard.
 
 `scripts/hasura-apply.sh` substitutes both from your local `.env.local` into a
 throwaway copy of the metadata before applying, so a fresh clone works without a
-dashboard visit. If you add the two variables to your nhost project instead, delete
-the substitution block in that script and the tracked metadata applies unchanged.
-
----
+dashboard visit. If you add the two variables to your nhost project instead,
+delete the substitution block in that script and the tracked metadata applies
+unchanged.
 
 ## The final scenario, end to end
 

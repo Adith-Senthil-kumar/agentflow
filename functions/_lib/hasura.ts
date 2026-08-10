@@ -1,4 +1,3 @@
-import 'server-only';
 import { serverEnv } from './env';
 
 export class HasuraError extends Error {
@@ -27,7 +26,6 @@ export async function gqlAdmin<T = unknown>(
       'x-hasura-admin-secret': serverEnv.hasuraAdminSecret,
     },
     body: JSON.stringify({ query, variables }),
-    cache: 'no-store',
   });
 
   const json = (await res.json()) as { data?: T; errors?: unknown };

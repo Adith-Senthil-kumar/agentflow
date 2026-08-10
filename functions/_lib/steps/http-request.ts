@@ -1,4 +1,3 @@
-import 'server-only';
 import { fetchWithTimeout, PermanentError, RetryableError, withRetry } from '../retry';
 import type { HttpRequestConfig } from '../types';
 import type { StepExecutor } from './types';

@@ -1,4 +1,3 @@
-import 'server-only';
 import { gqlAdmin } from './hasura';
 import { AccessDenied, getOrgRole } from './org-access';
 import type { OrgRole, TriggerType, WorkflowStepRow } from './types';

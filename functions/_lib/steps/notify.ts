@@ -1,4 +1,3 @@
-import 'server-only';
 import { gqlAdmin } from '../hasura';
 import { PermanentError } from '../retry';
 import type { NotifyConfig } from '../types';

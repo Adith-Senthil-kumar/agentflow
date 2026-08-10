@@ -1,6 +1,4 @@
-import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { serverEnv } from './env';
 import { gqlAdmin } from './hasura';
 import { renderDeep } from './template';
 import { PermanentError } from './retry';
@@ -20,18 +18,15 @@ import type {
 } from './types';
 
 /**
- * How long a lease is held. Must exceed TIME_BUDGET_MS so the lease cannot
- * expire while this invocation is still working, but stay short enough that a
- * crashed invocation frees the run quickly.
+ * How long a run's execution lease is held.
+ *
+ * nhost functions run inside a long-lived server, so a run executes to
+ * completion in one go rather than being chopped into invocations. The lease
+ * therefore only needs to outlast a realistic run; if the container dies
+ * mid-run it expires and the stalled-run sweeper on the cron tick picks the run
+ * back up.
  */
-const LEASE_SECONDS = 120;
-
-/**
- * Wall-clock budget for one invocation. Serverless functions are killed at
- * their maxDuration, so the executor stops well before that and hands the rest
- * of the run to a fresh invocation instead of dying mid-step.
- */
-const TIME_BUDGET_MS = 35_000;
+const LEASE_SECONDS = 900;
 
 const EXECUTORS: Record<Exclude<StepType, 'approval_gate'>, StepExecutor> = {
   llm_call: executeLlmCall,
@@ -46,49 +41,45 @@ const EXECUTORS: Record<Exclude<StepType, 'approval_gate'>, StepExecutor> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Drives a run forward as far as it can in one invocation.
+ * Drives a run to completion, or to its next approval gate.
  *
  * Safe to call concurrently and safe to call on a run that is already finished:
  * the lease makes redundant calls no-ops rather than duplicate executions. That
- * matters because six different things can call this.
+ * matters because five different things can call this — manual Action, inbound
+ * webhook, cron dispatch, database event, and approval resume — and for an
+ * llm_call or http_request step a double execution is a duplicated side effect,
+ * not just wasted time.
  */
 export async function advanceRun(runId: string): Promise<void> {
   const token = randomUUID();
   const run = await acquireLock(runId, token);
-  if (!run) return; // finished, or another invocation holds the lease
+  if (!run) return; // finished, or another caller holds the lease
 
-  let needsContinuation = false;
   try {
-    needsContinuation = await drive(run);
+    await drive(run);
   } catch (err) {
     await failRun(runId, err);
   } finally {
-    // Released before scheduling the continuation, otherwise the continuation
-    // would race this invocation for a lease it cannot win and the run stalls.
     await releaseLock(runId, token);
   }
-
-  if (needsContinuation) await scheduleContinuation(runId);
 }
 
 // ---------------------------------------------------------------------------
 // The loop
 // ---------------------------------------------------------------------------
 
-/** Returns true when the run still has work left and needs a fresh invocation. */
-async function drive(run: WorkflowRunRow): Promise<boolean> {
+async function drive(run: WorkflowRunRow): Promise<void> {
   const steps = await loadSteps(run.workflow_id);
 
   if (steps.length === 0) {
     await failRun(run.id, new PermanentError('Workflow has no steps'));
-    return false;
+    return;
   }
 
   if (run.status === 'pending') await markRunning(run.id);
 
   let ctx: RunContext = run.context ?? {};
   let cursor = run.cursor;
-  const deadline = Date.now() + TIME_BUDGET_MS;
 
   while (cursor < steps.length) {
     const step = steps[cursor];
@@ -98,7 +89,7 @@ async function drive(run: WorkflowRunRow): Promise<boolean> {
     if (step.type === 'approval_gate') {
       const cfg = (step.config ?? {}) as ApprovalGateConfig;
       await pauseForApproval(run.id, stepRunId, cursor, ctx, cfg);
-      return false;
+      return;
     }
 
     try {
@@ -130,14 +121,11 @@ async function drive(run: WorkflowRunRow): Promise<boolean> {
     } catch (err) {
       await failStepRun(stepRunId, err);
       await failRun(run.id, err);
-      return false;
+      return;
     }
-
-    if (Date.now() > deadline) return true;
   }
 
   await succeedRun(run.id, ctx);
-  return false;
 }
 
 /**
@@ -420,29 +408,6 @@ export async function countRunAgainstQuota(runId: string, orgId: string): Promis
      }`,
     { orgId },
   );
-}
-
-/**
- * Hands the rest of the run to a fresh invocation. The target route returns
- * immediately and does its work in `after()`, so this await resolves in
- * milliseconds rather than blocking on the remainder of the run.
- */
-async function scheduleContinuation(runId: string): Promise<void> {
-  try {
-    await fetch(`${serverEnv.appBaseUrl}/api/internal/advance-run`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-agentflow-secret': serverEnv.webhookSecret,
-      },
-      body: JSON.stringify({ run_id: runId }),
-      cache: 'no-store',
-    });
-  } catch (err) {
-    // The run stays `running` with an expired lease; the next trigger or a
-    // manual retry picks it up. Losing the continuation must not corrupt state.
-    console.error('[executor] failed to schedule continuation', runId, err);
-  }
 }
 
 export function errorMessage(err: unknown): string {

@@ -1,4 +1,3 @@
-import 'server-only';
 import { gqlAdmin } from './hasura';
 import type { OrgRole } from './types';
 

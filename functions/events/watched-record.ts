@@ -1,19 +1,8 @@
-import { NextResponse, after } from 'next/server';
-import { verifyHasuraSecret } from '@/lib/action-request';
-import { advanceRun } from '@/lib/executor';
-import { gqlAdmin } from '@/lib/hasura';
-import { QuotaExhausted, createRun, loadWorkflow } from '@/lib/start-run';
-
-export const runtime = 'nodejs';
-export const maxDuration = 60;
-
-interface EventPayload {
-  event: {
-    op: 'INSERT' | 'UPDATE' | 'DELETE' | 'MANUAL';
-    data: { new: Record<string, unknown> | null; old: Record<string, unknown> | null };
-  };
-  table: { schema: string; name: string };
-}
+import type { Request, Response } from 'express';
+import { runInBackground, verifyHasuraSecret, type HasuraEventPayload } from '../_lib/http';
+import { advanceRun } from '../_lib/executor';
+import { gqlAdmin } from '../_lib/hasura';
+import { QuotaExhausted, createRun, loadWorkflow } from '../_lib/start-run';
 
 /**
  * Hasura Event Trigger: a row landed in `watched_records`.
@@ -22,17 +11,21 @@ interface EventPayload {
  * no button click anywhere. The org comes from the inserted row, so a record
  * created in Org B can only ever start Org B workflows.
  */
-export async function POST(req: Request) {
+export default async function handler(req: Request, res: Response): Promise<void> {
   if (!verifyHasuraSecret(req)) {
-    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+    res.status(401).json({ message: 'Unauthorized' });
+    return;
   }
 
-  const body = (await req.json()) as EventPayload;
+  const body = req.body as HasuraEventPayload;
   const row = body.event?.data?.new;
-  if (!row) return NextResponse.json({ skipped: 'no new row' });
+  if (!row) {
+    res.status(200).json({ skipped: 'no new row' });
+    return;
+  }
 
-  const orgId = row.org_id as string;
-  const kind = (row.kind as string) ?? null;
+  const orgId = row['org_id'] as string;
+  const kind = (row['kind'] as string) ?? null;
 
   try {
     const data = await gqlAdmin<{
@@ -55,7 +48,7 @@ export async function POST(req: Request) {
 
     for (const trigger of data.workflow_triggers) {
       // A trigger may narrow itself to one record kind.
-      const wanted = trigger.config?.kind;
+      const wanted = trigger.config?.['kind'];
       if (wanted && wanted !== kind) {
         skipped.push(trigger.id);
         continue;
@@ -68,7 +61,7 @@ export async function POST(req: Request) {
         const { runId } = await createRun({
           workflow,
           triggerType: 'database_event',
-          triggeredBy: (row.created_by as string) ?? null,
+          triggeredBy: (row['created_by'] as string) ?? null,
           input: { record: row, table: body.table?.name, op: body.event?.op },
         });
         await gqlAdmin(
@@ -78,7 +71,7 @@ export async function POST(req: Request) {
           { id: trigger.id, now: new Date().toISOString() },
         );
         started.push(runId);
-        after(() => advanceRun(runId));
+        runInBackground(() => advanceRun(runId), `dbevent:${runId}`);
       } catch (err) {
         // One org hitting its quota must not stop the other triggers from
         // firing, and must not make Hasura retry the whole event.
@@ -90,10 +83,10 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ started, skipped });
+    res.status(200).json({ started, skipped });
   } catch (err) {
     console.error('[event:watched-record]', err);
     // 500 lets Hasura's retry policy have another go.
-    return NextResponse.json({ message: 'Failed to dispatch' }, { status: 500 });
+    res.status(500).json({ message: 'Failed to dispatch' });
   }
 }

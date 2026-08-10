@@ -1,17 +1,15 @@
-import { NextResponse, after } from 'next/server';
+import type { Request, Response } from 'express';
 import {
   actionError,
+  runInBackground,
   sessionUserId,
   verifyHasuraSecret,
   type HasuraActionPayload,
-} from '@/lib/action-request';
-import { advanceRun, countRunAgainstQuota } from '@/lib/executor';
-import { gqlAdmin } from '@/lib/hasura';
-import { AccessDenied, getOrgRole } from '@/lib/org-access';
-import type { ApprovalGateConfig, OrgRole } from '@/lib/types';
-
-export const runtime = 'nodejs';
-export const maxDuration = 60;
+} from '../_lib/http';
+import { advanceRun, countRunAgainstQuota } from '../_lib/executor';
+import { gqlAdmin } from '../_lib/hasura';
+import { AccessDenied, getOrgRole } from '../_lib/org-access';
+import type { ApprovalGateConfig, OrgRole } from '../_lib/types';
 
 interface Input {
   step_run_id: string;
@@ -41,19 +39,30 @@ interface StepRunDetail {
  * row write that this handler happens to wrap — the handler *is* the mechanism.
  *
  * That matters because the check is not expressible as a row permission: it
- * depends on the run's live state (is this step actually paused right now?) as
- * well as the approver's role in the org that owns the workflow.
+ * depends on the run's live state (is this step paused right now?) as well as
+ * the approver's role in the org that owns the workflow.
  */
-export async function POST(req: Request) {
-  if (!verifyHasuraSecret(req)) return actionError('Unauthorized', 401);
+export default async function handler(req: Request, res: Response): Promise<void> {
+  if (req.method !== 'POST') {
+    actionError(res, 'Method not allowed', 405);
+    return;
+  }
+  if (!verifyHasuraSecret(req)) {
+    actionError(res, 'Unauthorized', 401);
+    return;
+  }
 
-  const payload = (await req.json()) as HasuraActionPayload<Input>;
+  const payload = req.body as HasuraActionPayload<Input>;
   const userId = sessionUserId(payload);
   const { step_run_id: stepRunId, decision, comment } = payload.input ?? {};
 
-  if (!stepRunId) return actionError('step_run_id is required');
+  if (!stepRunId) {
+    actionError(res, 'step_run_id is required');
+    return;
+  }
   if (decision !== 'approve' && decision !== 'reject') {
-    return actionError('decision must be "approve" or "reject"');
+    actionError(res, 'decision must be "approve" or "reject"');
+    return;
   }
 
   try {
@@ -89,30 +98,37 @@ export async function POST(req: Request) {
       : ['owner', 'editor'];
 
     if (!allowed.includes(role)) {
-      return actionError(
+      actionError(
+        res,
         `Your role in this organization (${role}) cannot approve this step`,
         403,
         'access-denied',
       );
+      return;
     }
 
     // --- state checks -------------------------------------------------------
     if (stepRun.type !== 'approval_gate') {
-      return actionError('That step is not an approval gate', 400);
+      actionError(res, 'That step is not an approval gate', 400);
+      return;
     }
     if (stepRun.status !== 'awaiting_approval') {
-      return actionError(
+      actionError(
+        res,
         `This step is no longer awaiting approval (it is "${stepRun.status}")`,
         409,
         'not-pending',
       );
+      return;
     }
     if (stepRun.workflow_run.status !== 'paused') {
-      return actionError(
+      actionError(
+        res,
         `This run is not paused (it is "${stepRun.workflow_run.status}")`,
         409,
         'not-paused',
       );
+      return;
     }
 
     const now = new Date().toISOString();
@@ -142,17 +158,18 @@ export async function POST(req: Request) {
       // completion — the LLM and HTTP calls before the gate already happened.
       await countRunAgainstQuota(runId, orgId);
 
-      return NextResponse.json({
+      res.status(200).json({
         step_run_id: stepRunId,
         run_id: runId,
         run_status: 'rejected',
         message: 'Run rejected at the approval gate',
       });
+      return;
     }
 
     // Approve: stamp the approver, then move the cursor past the gate and put
-    // the run back into `running` in the same mutation, so no other invocation
-    // can observe an approved-but-still-paused state.
+    // the run back into `running` in the same mutation, so no other caller can
+    // observe an approved-but-still-paused state.
     await gqlAdmin(
       `mutation ApproveStep(
          $stepRunId: uuid!, $runId: uuid!, $userId: uuid!, $now: timestamptz!,
@@ -177,17 +194,20 @@ export async function POST(req: Request) {
       },
     );
 
-    after(() => advanceRun(runId));
-
-    return NextResponse.json({
+    res.status(200).json({
       step_run_id: stepRunId,
       run_id: runId,
       run_status: 'running',
       message: `Approved by ${role}; run resumed`,
     });
+
+    runInBackground(() => advanceRun(runId), `resume:${runId}`);
   } catch (err) {
-    if (err instanceof AccessDenied) return actionError(err.message, 403, 'access-denied');
+    if (err instanceof AccessDenied) {
+      actionError(res, err.message, 403, 'access-denied');
+      return;
+    }
     console.error('[approveStep]', err);
-    return actionError('Failed to process approval', 500);
+    actionError(res, 'Failed to process approval', 500);
   }
 }

@@ -1,4 +1,3 @@
-import 'server-only';
 import { serverEnv } from '../env';
 import { fetchWithTimeout, PermanentError, RetryableError, withRetry } from '../retry';
 import type { LlmCallConfig } from '../types';

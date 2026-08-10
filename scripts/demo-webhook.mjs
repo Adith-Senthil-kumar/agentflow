@@ -87,6 +87,6 @@ console.log(JSON.stringify(result, null, 2));
 
 const runId = result.data?.triggerWorkflowByWebhook?.run_id;
 if (runId) {
-  const base = process.env.ACTION_BASE_URL || 'http://localhost:3000';
+  const base = process.env.APP_URL || 'http://localhost:3000';
   console.log(`\nWatch it live: ${base}/run/${runId}\n`);
 }

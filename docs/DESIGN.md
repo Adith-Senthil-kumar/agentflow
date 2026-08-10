@@ -119,18 +119,41 @@ its result immediately; the other browser watching the subscription sees the run
 resume on its own. A rejection instead terminates the run as `rejected` and leaves
 the record of who decided and when.
 
-Resume uses the same entry point as a fresh run. Six things can drive a run forward
-— manual Action, inbound webhook Action, cron dispatch, database event, approval
-resume, and the executor's own continuation — and all of them call `advanceRun`.
-That is only safe because of a lease: `acquire_run_lock` is a single conditional
-`UPDATE` that returns the row only if the run is runnable and unlocked, so redundant
-callers become no-ops instead of executing a step twice. For an `llm_call` or
-`http_request` step, double execution means a duplicated side effect, not just
-wasted time.
+Resume uses the same entry point as a fresh run. Five things can drive a run forward
+— manual Action, inbound webhook Action, cron dispatch, database event, and approval
+resume — and all of them call `advanceRun`. That is only safe because of a lease:
+`acquire_run_lock` is a single conditional `UPDATE` that returns the row only if the
+run is runnable and unlocked, so redundant callers become no-ops instead of
+executing a step twice. For an `llm_call` or `http_request` step, double execution
+means a duplicated side effect, not just wasted time.
 
-The same lease is what makes long runs survive serverless timeouts. The executor
-works to a 35-second budget, then releases the lease and hands the rest of the run
-to a fresh invocation, rather than being killed mid-step at the function limit.
+## Where the handlers run
+
+The Actions, Event Trigger handlers and the cron dispatcher are nhost serverless
+functions, in [`functions/`](../functions). Shared code sits in `functions/_lib`,
+which nhost's router excludes from routing because of the leading underscore, so
+the executor is importable without also being an endpoint.
+
+nhost runs functions inside a long-lived Express server rather than a
+per-invocation sandbox. Two consequences shaped the executor:
+
+- **Work continues after the response.** An Action responds with the new run id
+  immediately and then executes the run behind the response, which is what lets a
+  client subscribe and watch steps light up rather than waiting for a single slow
+  reply. On a per-invocation platform this needed `waitUntil`-style plumbing;
+  here it is just a promise that is not awaited.
+- **There is no function timeout to dodge.** An earlier version chopped runs into
+  35-second slices and re-invoked itself over HTTP to survive a serverless limit.
+  That machinery is gone: a run executes to completion in one pass, holding a
+  15-minute lease.
+
+What replaced it is a **stalled-run sweeper** on the same cron tick that dispatches
+schedules. If a container is replaced mid-run, the run is left `running` with a
+lease nobody holds; once that lease lapses and the row has been untouched for two
+minutes, the sweeper calls `advanceRun` again. Because `advanceRun` re-acquires the
+lease itself, a run that is actually healthy is skipped rather than double-executed.
+This is strictly better than the self-continuation it replaced, which could only
+recover from timeouts it predicted, not from a process dying.
 
 ## Quota
 

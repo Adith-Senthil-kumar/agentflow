@@ -1,11 +1,13 @@
-import { NextResponse, after } from 'next/server';
-import { actionError, verifyHasuraSecret, type HasuraActionPayload } from '@/lib/action-request';
-import { advanceRun } from '@/lib/executor';
-import { gqlAdmin } from '@/lib/hasura';
-import { QuotaExhausted, createRun, loadWorkflow } from '@/lib/start-run';
-
-export const runtime = 'nodejs';
-export const maxDuration = 60;
+import type { Request, Response } from 'express';
+import {
+  actionError,
+  runInBackground,
+  verifyHasuraSecret,
+  type HasuraActionPayload,
+} from '../_lib/http';
+import { advanceRun } from '../_lib/executor';
+import { gqlAdmin } from '../_lib/hasura';
+import { QuotaExhausted, createRun, loadWorkflow } from '../_lib/start-run';
 
 interface Input {
   webhook_token: string;
@@ -18,18 +20,26 @@ interface Input {
  *
  * There is no user session here, so authorisation works differently from the
  * manual path: the caller presents an opaque token, and the token is what
- * resolves the workflow. A caller cannot name a workflow id at all, which means
- * there is nothing to guess — an Org B system holding no Org A token has no
- * reachable surface, and a leaked token can be rotated by deleting the trigger.
+ * resolves the workflow. A caller cannot name a workflow id at all, so there is
+ * nothing to guess — an Org B system holding no Org A token has no reachable
+ * surface, and a leaked token is revoked by deleting the trigger.
  */
-export async function POST(req: Request) {
-  if (!verifyHasuraSecret(req)) return actionError('Unauthorized', 401);
+export default async function handler(req: Request, res: Response): Promise<void> {
+  if (req.method !== 'POST') {
+    actionError(res, 'Method not allowed', 405);
+    return;
+  }
+  if (!verifyHasuraSecret(req)) {
+    actionError(res, 'Unauthorized', 401);
+    return;
+  }
 
-  const payload = (await req.json()) as HasuraActionPayload<Input>;
+  const payload = req.body as HasuraActionPayload<Input>;
   const token = payload.input?.webhook_token;
 
   if (!token || typeof token !== 'string') {
-    return actionError('webhook_token is required', 400);
+    actionError(res, 'webhook_token is required', 400);
+    return;
   }
 
   try {
@@ -38,14 +48,13 @@ export async function POST(req: Request) {
         id: string;
         is_active: boolean;
         workflow_id: string;
-        config: Record<string, unknown>;
       }[];
     }>(
       `query ResolveWebhook($token: String!) {
          workflow_triggers(
            where: {webhook_token: {_eq: $token}, type: {_eq: "webhook"}},
            limit: 1
-         ) { id is_active workflow_id config }
+         ) { id is_active workflow_id }
        }`,
       { token },
     );
@@ -53,15 +62,18 @@ export async function POST(req: Request) {
     const trigger = data.workflow_triggers[0];
     // Same opaque answer for an unknown token and a deactivated one.
     if (!trigger || !trigger.is_active) {
-      return actionError('Invalid or inactive webhook token', 403, 'invalid-token');
+      actionError(res, 'Invalid or inactive webhook token', 403, 'invalid-token');
+      return;
     }
 
     const workflow = await loadWorkflow(trigger.workflow_id);
     if (!workflow || !workflow.is_active) {
-      return actionError('Invalid or inactive webhook token', 403, 'invalid-token');
+      actionError(res, 'Invalid or inactive webhook token', 403, 'invalid-token');
+      return;
     }
     if (workflow.steps.length === 0) {
-      return actionError('This workflow has no steps yet', 400, 'workflow-empty');
+      actionError(res, 'This workflow has no steps yet', 400, 'workflow-empty');
+      return;
     }
 
     const { runId, quotaUsed, quotaLimit } = await createRun({
@@ -79,19 +91,21 @@ export async function POST(req: Request) {
       { id: trigger.id, now: new Date().toISOString() },
     );
 
-    after(() => advanceRun(runId));
-
-    return NextResponse.json({
+    res.status(200).json({
       run_id: runId,
       status: 'started',
       message: `Run started for "${workflow.name}" via webhook`,
       quota_used: quotaUsed,
       quota_limit: quotaLimit,
     });
+
+    runInBackground(() => advanceRun(runId), `webhook:${runId}`);
   } catch (err) {
-    if (err instanceof QuotaExhausted)
-      return actionError(err.message, 429, 'quota-exhausted');
+    if (err instanceof QuotaExhausted) {
+      actionError(res, err.message, 429, 'quota-exhausted');
+      return;
+    }
     console.error('[triggerWorkflowByWebhook]', err);
-    return actionError('Failed to start run', 500);
+    actionError(res, 'Failed to start run', 500);
   }
 }
