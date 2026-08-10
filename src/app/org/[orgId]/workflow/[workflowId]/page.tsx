@@ -102,19 +102,11 @@ export default function WorkflowPage() {
   const ownerOnlyTypes = new Set(
     (typeData?.step_types ?? []).filter((t) => t.owner_only).map((t) => t.value),
   );
-  const gatedStepsPresent = (workflow?.steps ?? [])
-    .map((s) => s.type)
-    .filter((t) => ownerOnlyTypes.has(t));
 
-  // Mirrors the rule the triggerWorkflowRun handler enforces, so the button
-  // state matches what the server will actually do.
-  const runBlockedReason = !role
-    ? 'You are not a member of this organization'
-    : role === 'viewer'
-      ? 'Viewers cannot trigger runs'
-      : gatedStepsPresent.length > 0 && !isOwner
-        ? `Contains owner-only steps (${[...new Set(gatedStepsPresent)].join(', ')}); only an owner can start it`
-        : null;
+  // Owners and editors may trigger runs; viewers may not. The Run button is
+  // hidden for anyone who cannot use it, and the triggerWorkflowRun handler
+  // refuses them independently — hiding it is presentation, not the control.
+  const canRun = role === 'owner' || role === 'editor';
 
   async function startRun() {
     setRunNotice(null);
@@ -184,20 +176,15 @@ export default function WorkflowPage() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          {runBlockedReason ? (
-            <div className="text-right">
-              <Button disabled title={runBlockedReason}>
-                ▶ run workflow
-              </Button>
-              <p className="mt-1.5 max-w-[34ch] text-[11px] leading-relaxed text-[var(--color-ink-faint)]">
-                {runBlockedReason}
-              </p>
-            </div>
-          ) : (
-            <Button variant="primary" onClick={startRun} disabled={running || workflow.steps.length === 0}>
+          {canRun ? (
+            <Button
+              variant="primary"
+              onClick={startRun}
+              disabled={running || workflow.steps.length === 0}
+            >
               {running ? 'starting…' : '▶ run workflow'}
             </Button>
-          )}
+          ) : null}
           {runError ? <ErrorNote>{runError.message}</ErrorNote> : null}
           {runNotice ? (
             <p className="text-[11px] text-[var(--color-live)]">{runNotice}</p>

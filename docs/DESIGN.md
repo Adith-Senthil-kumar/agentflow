@@ -82,7 +82,7 @@ check:
 allowed step and then mutate it into a gated one — a hole that a naive insert-only
 gate leaves wide open.
 
-**Where a row permission cannot reach, the handler enforces it.** Three cases:
+**Where a row permission cannot reach, the handler enforces it.** Two cases:
 
 1. **Clearing an approval gate.** The check depends on the run's live state — is
    this step paused *right now*, is this run still `paused` — as well as the
@@ -92,13 +92,7 @@ gate leaves wide open.
    grants no write permission to anyone, this handler is not the convenient path to
    approval; it is the only one.
 
-2. **Triggering a workflow that contains owner-only steps.** `triggerWorkflowRun`
-   refuses a non-owner if any step is flagged `owner_only`, reading the same column
-   the row permission reads. Configuring a privileged side effect and firing one are
-   the same privilege — without this, an editor who cannot add a `db_write` step
-   could still run a workflow full of them, and the insert gate would be theatre.
-
-3. **Revealing a webhook token.** Hasura column permissions are per-role, and role
+2. **Revealing a webhook token.** Hasura column permissions are per-role, and role
    here is per-org data, so "owners see the token, editors do not" is not expressible
    as a column rule. `webhook_token` is excluded from every select permission and
    owners fetch the endpoint through the owner-only `getWebhookEndpoint` Action.
@@ -140,27 +134,41 @@ to a fresh invocation, rather than being killed mid-step at the function limit.
 
 ## Quota
 
-`consume_org_quota` rolls the period over if the month changed, then checks and
-reserves in one statement:
+Two separate moments, as the brief specifies.
+
+**At admission**, `triggerWorkflowRun` calls `roll_org_quota_period`, which resets
+the counter if the calendar month has turned over and returns the org row. If
+`quota_used >= quota_limit` the Action refuses with a `quota-exhausted` code and no
+run is created. Rolling has to happen here rather than on a schedule, otherwise the
+first run of a new month is measured against last month's counter.
+
+**On completion**, whichever path takes the run terminal — success, failure after
+retries, or a rejected approval gate — calls `countRunAgainstQuota`. A run that is
+still executing has therefore not consumed anything, and a run that never finishes
+never will.
+
+Counting is claimed before it is applied:
 
 ```sql
-UPDATE organizations SET quota_used = quota_used + 1
- WHERE id = p_org_id AND quota_used < quota_limit
-RETURNING *;
+UPDATE workflow_runs SET quota_counted = true
+ WHERE id = $1 AND quota_counted = false
 ```
 
-Zero rows back means denied. This deviates from "increment on completion", and
-deliberately: a completion-time increment lets ten concurrent triggers all pass a
-check that only one of them should have passed, which is precisely the situation
-quotas exist to prevent. Reserving at admission makes the check and the increment
-the same atomic operation. A run rejected before executing any step refunds its
-reservation.
+Zero affected rows means another invocation already counted this run, and the
+increment is skipped. Six things can drive a run forward and a finalisation can be
+reached more than once, so without that claim a single run could be counted twice.
 
-The function returns `SETOF organizations` rather than a scalar so Hasura can track
-it — Hasura only tracks functions returning `SETOF` a tracked table — which keeps the
-executor talking GraphQL and means there is no raw SQL string built in application
-code. None of the tracked functions declare a role permission, so they are reachable
-only by the admin client and are absent from the schema any browser session sees.
+Both functions return `SETOF organizations` rather than a scalar, because Hasura
+only tracks functions returning `SETOF` a tracked table. That keeps the executor
+talking GraphQL with no raw SQL built in application code. Neither declares a role
+permission, so they are reachable only by the admin client and are absent from the
+schema any browser session sees.
+
+One honest limitation: because the check and the increment are separate, N runs
+triggered simultaneously against an org with one call remaining can all pass the
+check before any of them completes, and the org finishes the month marginally over
+its limit. Closing that would mean reserving at admission, which is a different
+behaviour from the one specified here.
 
 ## Retries and failure
 

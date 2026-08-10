@@ -81,7 +81,6 @@ async function drive(run: WorkflowRunRow): Promise<boolean> {
 
   if (steps.length === 0) {
     await failRun(run.id, new PermanentError('Workflow has no steps'));
-    await refundQuota(run.org_id);
     return false;
   }
 
@@ -363,33 +362,61 @@ async function saveProgress(runId: string, cursor: number, ctx: RunContext): Pro
 }
 
 async function succeedRun(runId: string, ctx: RunContext): Promise<void> {
-  await gqlAdmin(
+  const data = await gqlAdmin<{
+    update_workflow_runs_by_pk: { id: string; org_id: string } | null;
+  }>(
     `mutation SucceedRun($runId: uuid!, $ctx: jsonb!, $now: timestamptz!) {
        update_workflow_runs_by_pk(
          pk_columns: {id: $runId},
          _set: {status: "succeeded", context: $ctx, finished_at: $now}
-       ) { id }
+       ) { id org_id }
      }`,
     { runId, ctx, now: new Date().toISOString() },
   );
+  const org = data.update_workflow_runs_by_pk?.org_id;
+  if (org) await countRunAgainstQuota(runId, org);
 }
 
 async function failRun(runId: string, err: unknown): Promise<void> {
-  await gqlAdmin(
+  const data = await gqlAdmin<{
+    update_workflow_runs_by_pk: { id: string; org_id: string } | null;
+  }>(
     `mutation FailRun($runId: uuid!, $error: String!, $now: timestamptz!) {
        update_workflow_runs_by_pk(
          pk_columns: {id: $runId},
          _set: {status: "failed", error: $error, finished_at: $now}
-       ) { id }
+       ) { id org_id }
      }`,
     { runId, error: errorMessage(err), now: new Date().toISOString() },
   );
+  const org = data.update_workflow_runs_by_pk?.org_id;
+  if (org) await countRunAgainstQuota(runId, org);
 }
 
-async function refundQuota(orgId: string): Promise<void> {
+/**
+ * Consumes one unit of the org's monthly quota for a run that has just reached
+ * a terminal state.
+ *
+ * The run is claimed first with a conditional update on `quota_counted`. Six
+ * things can drive a run and a finalisation can be reached more than once, so
+ * without the claim a single run could be counted twice. Zero affected rows
+ * means someone else already counted it.
+ */
+export async function countRunAgainstQuota(runId: string, orgId: string): Promise<void> {
+  const claim = await gqlAdmin<{ update_workflow_runs: { affected_rows: number } }>(
+    `mutation ClaimQuotaCount($runId: uuid!) {
+       update_workflow_runs(
+         where: {id: {_eq: $runId}, quota_counted: {_eq: false}},
+         _set: {quota_counted: true}
+       ) { affected_rows }
+     }`,
+    { runId },
+  );
+  if (claim.update_workflow_runs.affected_rows === 0) return;
+
   await gqlAdmin(
-    `mutation RefundQuota($orgId: uuid!) {
-       refund_org_quota(args: {p_org_id: $orgId}) { id quota_used }
+    `mutation IncrementQuota($orgId: uuid!) {
+       increment_org_quota(args: {p_org_id: $orgId}) { id quota_used quota_limit }
      }`,
     { orgId },
   );

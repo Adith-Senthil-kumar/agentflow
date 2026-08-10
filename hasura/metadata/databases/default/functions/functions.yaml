@@ -3,12 +3,12 @@
 # reachable by the admin-secret client only and are absent from the schema every
 # browser session sees.
 - function:
-    name: consume_org_quota
+    name: roll_org_quota_period
     schema: public
   configuration:
     exposed_as: mutation
 - function:
-    name: refund_org_quota
+    name: increment_org_quota
     schema: public
   configuration:
     exposed_as: mutation

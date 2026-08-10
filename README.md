@@ -173,11 +173,9 @@ the substitution block in that script and the tracked metadata applies unchanged
 4. Start the same workflow without a button: `npm run demo:webhook`, or use the
    **insert watched record** control on the workflow page to fire the database-event
    trigger. Both produce a new run in the history, live.
-5. Sign in as **`viewer-a@agentflow.test`** — Run is disabled and says why, step
-   editing is gone, and calling `triggerWorkflowRun` directly is refused by the
-   handler regardless. (The brief says "hidden"; a disabled control that states the
-   rule is more useful to a reviewer than an absent one, and the enforcement is
-   server-side either way.)
+5. Sign in as **`viewer-a@agentflow.test`** — the Run button is gone and step
+   editing is read-only. Calling `triggerWorkflowRun` directly is refused by the
+   handler regardless, so hiding it is presentation rather than the control.
 6. Sign in as **`owner-b@agentflow.test`** and paste any Org A id into the URL —
    `/org/<A>`, `/org/<A>/workflow/<A>`, `/run/<A>`. Each reports no access, because
    the row permission returned nothing. `npm run verify` asserts the same thing
@@ -185,16 +183,19 @@ the substitution block in that script and the tracked metadata applies unchanged
 
 ---
 
-## Deliberate design decisions
+## One design decision worth flagging
 
-Three choices worth flagging, because each departs from the most obvious reading
-of the brief. All three are argued in full in [`docs/DESIGN.md`](docs/DESIGN.md).
+**`owner`/`editor`/`viewer` are not Hasura roles.** Role is per-org data, held in
+`org_members` and checked inside the permission filter, and there is exactly one
+authenticated Hasura role (`user`).
 
-- **`owner`/`editor`/`viewer` are not Hasura roles.** A user can hold different
-  roles in different orgs, and an nhost JWT carries one global set of allowed
-  roles. Role lives in `org_members` and is checked inside the permission filter.
-- **Quota is reserved at admission, not incremented at completion.** Incrementing
-  on completion lets N concurrent runs pass a check only one should have passed.
-- **A workflow containing owner-only step types can only be *started* by an
-  owner.** Configuring a privileged side effect and causing one are the same
-  privilege; without this the insert gate would be decorative.
+This is what the brief asks for — "every permission also has to scope to the
+caller's own org via `org_members`" — taken literally. The alternative, three
+Hasura roles carried in the JWT, breaks the moment one user holds different roles
+in two orgs: an nhost JWT carries a single global `allowed-roles` set, so selecting
+`editor` would grant editor rights in *every* org that user belongs to. It happens
+to look correct in a two-org demo where nobody has dual membership, which is
+exactly the kind of shortcut this build avoids.
+
+Full reasoning, plus how the approval gate pauses and resumes, is in
+[`docs/DESIGN.md`](docs/DESIGN.md).

@@ -5,7 +5,7 @@ import {
   verifyHasuraSecret,
   type HasuraActionPayload,
 } from '@/lib/action-request';
-import { advanceRun } from '@/lib/executor';
+import { advanceRun, countRunAgainstQuota } from '@/lib/executor';
 import { gqlAdmin } from '@/lib/hasura';
 import { AccessDenied, getOrgRole } from '@/lib/org-access';
 import type { ApprovalGateConfig, OrgRole } from '@/lib/types';
@@ -137,6 +137,10 @@ export async function POST(req: Request) {
           output: { decision: 'reject', by: userId, role, comment: comment ?? null, at: now },
         },
       );
+
+      // A rejection ends the run, so it consumes quota like any other
+      // completion — the LLM and HTTP calls before the gate already happened.
+      await countRunAgainstQuota(runId, orgId);
 
       return NextResponse.json({
         step_run_id: stepRunId,
