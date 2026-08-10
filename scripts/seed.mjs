@@ -217,6 +217,17 @@ async function main() {
           value: '{{steps.Classify alert.text}}',
         },
       },
+      {
+        position: 5,
+        type: 'notify',
+        name: 'Escalate to on-call',
+        config: {
+          channel: 'slack',
+          target: '#incidents',
+          subject: 'URGENT incident escalated',
+          body: 'Triage verdict: {{steps.Classify alert.text}}',
+        },
+      },
     ],
     triggers: [
       { type: 'webhook', config: {} },

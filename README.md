@@ -73,8 +73,9 @@ npm run seed
 ```
 
 Creates two organizations with their own users, an `Incident triage` workflow in
-Org A (llm_call → conditional_branch → http_request → approval_gate → db_write)
-with webhook and database-event triggers, an editor-runnable workflow with a cron
+Org A that exercises all six step types (llm_call → conditional_branch →
+http_request → approval_gate → db_write → notify) with webhook and
+database-event triggers, an editor-runnable workflow with a cron
 trigger, and a separate Org B workflow.
 
 | Account | Org | Role |
@@ -161,12 +162,14 @@ the substitution block in that script and the tracked metadata applies unchanged
 ## The final scenario, end to end
 
 1. Sign in as **`owner-a@agentflow.test`** → open **Acme Robotics** → **Incident triage**.
-   Five steps, three types, plus a branch and a gate.
+   Six steps covering all six step types, including a branch and a gate.
 2. Press **Run workflow**. The run page opens on a live `step_runs` subscription.
    `Classify alert` calls Groq for real; `Urgent?` reads its verdict; the run pauses
    at `Human approval` with the run marked **paused**. Nothing polls or refreshes.
 3. In a second browser, sign in as **`editor-a@agentflow.test`**, open the same run,
-   and approve. The first browser resumes on its own and finishes through `db_write`.
+   and approve. The first browser resumes on its own and finishes through `db_write`
+   and `notify` — the latter inserting a `notifications` row that a Hasura Event
+   Trigger then delivers.
 4. Start the same workflow without a button: `npm run demo:webhook`, or use the
    **insert watched record** control on the workflow page to fire the database-event
    trigger. Both produce a new run in the history, live.
