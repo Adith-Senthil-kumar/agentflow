@@ -192,6 +192,31 @@ The shared secret needs no such handling. Metadata references
 the functions runtime, so the two sides agree with nothing copied between them and
 nothing to drift out of step.
 
+## The recording
+
+[`recordings/agentflow-final-task.mp4`](recordings/agentflow-final-task.mp4) — 85
+seconds, no audio, two browsers side by side against the deployed app.
+
+- **Left:** an Org A **owner**. **Right:** an Org A **editor**, then an Org B owner.
+- The owner starts the run; it streams step by step and stops at the approval gate.
+- The **editor** approves in the right-hand window, and the left-hand window
+  resumes and finishes on its own — nothing is clicked in it.
+- Finally the Org B owner pastes that exact run id and is refused, with both
+  address bars showing the same id side by side.
+
+Everything in it is real: a live Groq call, a real outbound HTTP request, a real
+approval through the Action, and a real subscription driving the left window.
+
+The same walkthrough can also be driven automatically, which is how it was
+rehearsed before filming:
+
+```bash
+node scripts/record-demo.mjs   # drives the live app in two browsers, captures video
+bash scripts/stitch-demo.sh    # side-by-side + isolation segment -> one MP4
+```
+
+---
+
 ## The final scenario, end to end
 
 1. Sign in as **`owner-a@agentflow.test`** → open **Acme Robotics** → **Incident triage**.
