@@ -2,130 +2,95 @@
 
 ## Schema reasoning
 
-The spine is `organizations → org_members → workflows → {workflow_steps, workflow_triggers}`
-and `workflows → workflow_runs → step_runs`. Two things about it are load-bearing.
+The spine is `organizations → org_members → workflows → {workflow_steps,
+workflow_triggers}` and `workflows → workflow_runs → step_runs`. Two choices carry
+the weight.
 
 **`org_members` is the only membership fact in the system.** Every permission rule
-in the app resolves through it. Nothing is scoped by a client-supplied header or a
-claim baked into a token — a permission filter always walks the relationship graph
-back to a row that says "this user is in this org with this role". That single
-choice is what makes cross-org isolation airtight rather than merely present:
-there is no second path to authority that could disagree with the first.
+resolves through it. Nothing is scoped by a client-supplied header or a claim baked
+into a token — a filter always walks the relationship graph back to a row saying
+"this user is in this org with this role". There is no second path to authority that
+could disagree with the first, which is what makes cross-org isolation airtight
+rather than merely present.
 
 **Definitions and executions are separate tables.** `workflow_steps` is the plan;
-`step_runs` is what happened. They are joined by a nullable `step_id`, so editing a
-workflow never rewrites history and deleting a step leaves finished runs readable.
-`step_runs` carries its own `type` and `name` copies for that reason. It is also the
-subscription target, which is why the executor writes to it after every state
-change rather than batching at the end — the live feed is a side effect of honest
-bookkeeping, not a separate reporting path.
+`step_runs` is what happened, joined by a nullable `step_id` and carrying its own
+copies of `type` and `name`. Editing a workflow therefore never rewrites history.
+`step_runs` is also the subscription target, so the executor writes to it after every
+state change — the live feed is a side effect of honest bookkeeping, not a separate
+reporting path.
 
-Step and trigger types are text columns with FKs to lookup tables rather than
-native `enum` types. That is not just about avoiding `ALTER TYPE` locks: a lookup
-row can carry attributes, and `step_types.owner_only` is read directly by a Hasura
-permission rule. The list of privileged step types therefore lives in exactly one
-place, and the UI, the row permission and the Action handler all read the same
-column.
-
-`workflow_runs.org_id` is denormalised from `workflows` for quota aggregation, and
-a database trigger rejects any row where it disagrees with the workflow's real org.
-Permission rules deliberately ignore that column and traverse the relationship
-instead, so isolation never depends on the denormalisation being correct.
+Step and trigger types are text columns with FKs to lookup tables rather than native
+enums, because a lookup row can carry attributes: `step_types.owner_only` is read
+directly by a Hasura permission rule, so the list of privileged types lives in
+exactly one place.
 
 The required aggregation is a view, `org_usage_current_month` — quota position, run
-counts by status, steps executed, and average run duration for the calendar month —
-tracked with its own org-scoped select permission through a manual relationship back
-to `organizations`.
+counts by status, steps executed and average run duration for the calendar month.
 
-## Two permission layers, enforced differently
+## The two layers, enforced differently
 
-**Layer 1 — org + role scoping — is Hasura row permissions.** Every rule combines
-both concerns in one boolean expression:
+**Layer 1 is Hasura row permissions.** Every rule folds org scope and role into one
+expression:
 
 ```yaml
-# workflows, update
 filter:
-  org: { members: { user_id: { _eq: X-Hasura-User-Id }, role: { _in: [owner, editor] } } }
+  org: { members: { user_id: {_eq: X-Hasura-User-Id}, role: {_in: [owner, editor]} } }
 ```
 
-The role clause is inside the org traversal, not beside it, so "editor" is never a
-global fact — it is always "editor *of this row's org*". An editor in Org A hitting
-an Org B workflow matches zero rows.
+The role clause sits *inside* the org traversal, so "editor" is never a global fact —
+always "editor of this row's org". This is why `owner`/`editor`/`viewer` are not
+Hasura roles: a user can hold different roles in different orgs, while an nhost JWT
+carries one global allowed-roles set. Role is per-org data, so it is checked as data.
 
-This is why `owner`/`editor`/`viewer` are **not** Hasura roles. A user can be an
-owner in one org and a viewer in another, while an nhost JWT carries a single global
-`allowed-roles` set; selecting `editor` would grant editor rights in every org the
-user belongs to. Role is per-org data, so it is checked as data. There is exactly one
-authenticated Hasura role, `user`.
+**Layer 2 is the same mechanism with the step's own type folded in.** The required
+role depends on what is being inserted — `owner_only` types (`db_write`, `notify`,
+and the `webhook` trigger) demand `owner`, everything else allows `owner|editor`.
+`type` is excluded from the updatable columns, so an allowed step cannot be mutated
+into a gated one.
 
-Two consequences are worth stating because they are what stops the UI from being the
-security boundary. `workflow_runs` has **no** insert permission for any client role,
-so a viewer cannot start a run by writing the row directly and skipping the hidden
-Run button. `step_runs` has **no** insert, update, or delete permission, which is
-what makes the approval gate real rather than decorative.
+**Where a row permission cannot reach, the handler enforces it.** Clearing an
+approval gate depends on live run state — is this step paused *right now* — as well
+as the approver's role in that specific org, which no row rule can express. Since
+`step_runs` grants no write permission to any client role, the `approveStep` Action
+is not the convenient path to approval; it is the only one. The same applies to
+revealing a webhook token, which is owner-only per row and so cannot be a column
+permission.
 
-**Layer 2 — step-level gating — is the same mechanism with the step's own type
-folded into the rule.** The required role depends on what is being inserted:
-
-```yaml
-# workflow_steps, insert
-check:
-  _or:
-    - _and: [ { step_type: { owner_only: { _eq: false } } },
-              { workflow: { org: { members: { user_id: {_eq: X-Hasura-User-Id}, role: {_in: [owner, editor]} } } } } ]
-    - _and: [ { step_type: { owner_only: { _eq: true  } } },
-              { workflow: { org: { members: { user_id: {_eq: X-Hasura-User-Id}, role: {_eq: owner} } } } } ]
-```
-
-`db_write` and `notify` are flagged `owner_only`, as is the `webhook` trigger type.
-`type` is excluded from the updatable column list, so an editor cannot insert an
-allowed step and then mutate it into a gated one — a hole that a naive insert-only
-gate leaves wide open.
-
-**Where a row permission cannot reach, the handler enforces it.** Two cases:
-
-1. **Clearing an approval gate.** The check depends on the run's live state — is
-   this step paused *right now*, is this run still `paused` — as well as the
-   approver's role in that specific org. `approveStep` loads step_run → run →
-   workflow → org, resolves the caller's role, compares it against the gate's own
-   `allowed_roles`, and only then stamps the approver and resumes. Since `step_runs`
-   grants no write permission to anyone, this handler is not the convenient path to
-   approval; it is the only one.
-
-2. **Revealing a webhook token.** Hasura column permissions are per-role, and role
-   here is per-org data, so "owners see the token, editors do not" is not expressible
-   as a column rule. `webhook_token` is excluded from every select permission and
-   owners fetch the endpoint through the owner-only `getWebhookEndpoint` Action.
-
-Both layers answer identically to a cross-org caller: **"Not found, or you do not
-have access to it."** A distinguishable 404-vs-403 would let an Org B user confirm
-that an Org A id exists by guessing it.
+Both layers answer a cross-org caller identically: *"Not found, or you do not have
+access to it."* A distinguishable 404-vs-403 would let an Org B user confirm an Org A
+id exists by guessing it.
 
 ## Approval gate: pause and resume
 
-The run carries a `cursor` — the position of the next step to execute — so resuming
-is "continue from here", never a replay.
+The run carries a `cursor` — the position of the next step — so resuming is "continue
+from here", never a replay.
 
-When the executor reaches an `approval_gate` it writes `step_runs.status =
+On reaching an `approval_gate` the executor writes `step_runs.status =
 awaiting_approval` and `workflow_runs.status = paused` in one mutation, leaves the
-cursor *on* the gate, and returns. No timer, no held connection, no polling loop:
-the run simply stops existing as work until something calls the executor again.
+cursor *on* the gate, and returns. No timer, no held connection, no polling: the run
+stops existing as work until something calls the executor again.
 
 `approveStep` verifies the approver, then advances the cursor past the gate and sets
-the run back to `running` in the same mutation — so no concurrent invocation can
-observe an approved-but-still-paused run — and calls the executor through Next's
-`after()`, which runs once the HTTP response has flushed. The approving client gets
-its result immediately; the other browser watching the subscription sees the run
-resume on its own. A rejection instead terminates the run as `rejected` and leaves
-the record of who decided and when.
+the run back to `running` in the same mutation — so no concurrent caller can observe
+an approved-but-still-paused run — and continues execution behind the HTTP response.
+The approving client gets its result immediately; another browser watching the
+subscription sees the run resume on its own. A rejection instead ends the run as
+`rejected`, preserving who decided and when.
 
-Resume uses the same entry point as a fresh run. Five things can drive a run forward
-— manual Action, inbound webhook Action, cron dispatch, database event, and approval
-resume — and all of them call `advanceRun`. That is only safe because of a lease:
-`acquire_run_lock` is a single conditional `UPDATE` that returns the row only if the
-run is runnable and unlocked, so redundant callers become no-ops instead of
-executing a step twice. For an `llm_call` or `http_request` step, double execution
-means a duplicated side effect, not just wasted time.
+Five things can drive a run forward — manual Action, inbound webhook, cron dispatch,
+database event, and approval resume — and all call `advanceRun`. That is safe only
+because of a database lease: `acquire_run_lock` is a conditional `UPDATE` returning
+the row only if the run is runnable and unlocked, so redundant callers become no-ops
+rather than executing a step twice. For an `llm_call` or `http_request`, a double
+execution is a duplicated side effect, not just wasted time.
+
+---
+
+*Everything above is the one-page write-up. What follows is supporting detail —
+implementation specifics, trade-offs and known limits — for anyone who wants it.*
+
+---
 
 ## Where the handlers run
 
