@@ -10,7 +10,8 @@
     "seed": "node scripts/seed.mjs",
     "verify": "node scripts/verify-isolation.mjs",
     "demo:webhook": "node scripts/demo-webhook.mjs",
-    "hasura:apply": "bash scripts/hasura-apply.sh"
+    "hasura:apply": "bash scripts/hasura-apply.sh",
+    "demo:reset": "node scripts/demo-reset.mjs"
   },
   "dependencies": {
     "@apollo/client": "^4.2.10",
