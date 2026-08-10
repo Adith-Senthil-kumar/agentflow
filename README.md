@@ -147,15 +147,15 @@ In the nhost dashboard, open your project → **Git** → connect this GitHub
 repository, leaving the base folder as `/`. Pushing to the connected branch
 deploys everything under `functions/`.
 
-### 2. Add two project environment variables
+### 2. Add one project environment variable
 
-nhost injects `NHOST_GRAPHQL_URL`, `NHOST_ADMIN_SECRET` and friends into every
-function, so only the two values it cannot know need setting under
+nhost injects `NHOST_GRAPHQL_URL`, `NHOST_ADMIN_SECRET` and `NHOST_WEBHOOK_SECRET`
+into every function, so the Hasura connection and the Hasura→function shared
+secret need no setup at all. Only the LLM key has to be added under
 **Settings → Environment Variables**:
 
 | Variable | Value |
 | --- | --- |
-| `AGENTFLOW_WEBHOOK_SECRET` | the same secret as in your `.env.local` |
 | `GROQ_API_KEY` | your Groq key (omit to run the disclosed LLM stub) |
 
 Optionally `SLACK_WEBHOOK_URL` to make `notify` deliver for real instead of
@@ -179,17 +179,18 @@ JWT. A leak of the frontend deployment's configuration would expose nothing.
 
 ### A note on `{{ACTION_BASE_URL}}`
 
-Tracked metadata refers to the handler host as `{{ACTION_BASE_URL}}` and to the
-shared secret as `value_from_env: AGENTFLOW_WEBHOOK_SECRET`, which is the
-idiomatic Hasura way to keep environment-specific values out of version control.
-Hasura normally resolves those from its own environment — on nhost, variables
-added in the project dashboard.
+Tracked metadata refers to the handler host as `{{ACTION_BASE_URL}}`, the
+idiomatic Hasura way to keep an environment-specific URL out of version control.
+Hasura resolves it from its own environment; on nhost that means a variable added
+in the project dashboard. `scripts/hasura-apply.sh` substitutes it from your local
+`.env.local` into a throwaway copy of the metadata instead, so a fresh clone works
+without a dashboard visit — nothing environment-specific is written back into the
+tracked files.
 
-`scripts/hasura-apply.sh` substitutes both from your local `.env.local` into a
-throwaway copy of the metadata before applying, so a fresh clone works without a
-dashboard visit. If you add the two variables to your nhost project instead,
-delete the substitution block in that script and the tracked metadata applies
-unchanged.
+The shared secret needs no such handling. Metadata references
+`value_from_env: NHOST_WEBHOOK_SECRET`, which nhost injects into both Hasura and
+the functions runtime, so the two sides agree with nothing copied between them and
+nothing to drift out of step.
 
 ## The final scenario, end to end
 
