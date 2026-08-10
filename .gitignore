@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# raw per-context captures; only the stitched MP4 is tracked
+/recordings/owner/
+/recordings/editor/
+/recordings/orgb/

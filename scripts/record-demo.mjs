@@ -68,6 +68,42 @@ async function signIn(page, email) {
   await sleep(900);
 }
 
+/**
+ * Pins a persistent role badge to every page in a context, re-applied on each
+ * navigation, so a viewer always knows which window they are looking at.
+ */
+async function badge(context, text, color) {
+  await context.addInitScript(
+    ({ text, color }) => {
+      const paint = () => {
+        if (document.getElementById('__demo_badge')) return;
+        const el = document.createElement('div');
+        el.id = '__demo_badge';
+        Object.assign(el.style, {
+          position: 'fixed',
+          top: '0',
+          left: '0',
+          zIndex: '99999',
+          padding: '9px 16px',
+          background: color,
+          color: '#000',
+          font: '700 15px/1 ui-monospace, monospace',
+          letterSpacing: '0.08em',
+        });
+        el.textContent = text;
+        document.body.appendChild(el);
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', paint);
+      } else {
+        paint();
+      }
+      setInterval(paint, 500);
+    },
+    { text, color },
+  );
+}
+
 /** Types a caption into the page so the video explains itself without audio. */
 async function caption(page, text, ms = 2600) {
   await page.evaluate((t) => {
@@ -115,6 +151,9 @@ async function main() {
     recordVideo: { dir: join(OUT, 'editor'), size: VIEWPORT },
     colorScheme: 'dark',
   });
+
+  await badge(ownerCtx, 'ORG A — OWNER', '#FFB000');
+  await badge(editorCtx, 'ORG A — EDITOR', '#35D0A5');
 
   const owner = await ownerCtx.newPage();
   const editor = await editorCtx.newPage();
@@ -203,6 +242,7 @@ async function main() {
     recordVideo: { dir: join(OUT, 'orgb'), size: VIEWPORT },
     colorScheme: 'dark',
   });
+  await badge(orgBCtx, 'ORG B — OWNER', '#FF5C53');
   const orgB = await orgBCtx.newPage();
 
   await signIn(orgB, 'owner-b@agentflow.test');

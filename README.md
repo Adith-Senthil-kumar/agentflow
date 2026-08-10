@@ -9,6 +9,7 @@ Built on **nhost** (PostgreSQL + Hasura + Auth), **Hasura GraphQL Engine**
 **Next.js**.
 
 - **Live app:** **https://agentflow-beta-jet.vercel.app**
+- **Recording of the Final Task:** [`recordings/agentflow-final-task.mp4`](recordings/agentflow-final-task.mp4)
 - **Design write-up:** [`docs/DESIGN.md`](docs/DESIGN.md)
 - **Sign in with any account in the table below** — password `Password123!`
 
