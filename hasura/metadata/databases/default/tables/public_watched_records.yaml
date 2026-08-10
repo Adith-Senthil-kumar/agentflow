@@ -52,10 +52,10 @@ event_triggers:
       interval_sec: 10
       num_retries: 2
       timeout_sec: 60
-    webhook: '{{ACTION_BASE_URL}}/api/events/watched-record'
+    webhook: '{{ACTION_BASE_URL}}/events/watched-record'
     headers:
       - name: x-agentflow-secret
-        value_from_env: AGENTFLOW_WEBHOOK_SECRET
+        value_from_env: NHOST_WEBHOOK_SECRET
     comment: >-
       Database-event trigger. Inserting a row here starts a run of every active
       database_event workflow in the same org, with no button click.

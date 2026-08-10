@@ -43,10 +43,10 @@ event_triggers:
       interval_sec: 10
       num_retries: 3
       timeout_sec: 60
-    webhook: '{{ACTION_BASE_URL}}/api/events/notify'
+    webhook: '{{ACTION_BASE_URL}}/events/notify'
     headers:
       - name: x-agentflow-secret
-        value_from_env: AGENTFLOW_WEBHOOK_SECRET
+        value_from_env: NHOST_WEBHOOK_SECRET
     comment: >-
       Implements the `notify` step type. The executor inserts a row here and
       moves on; Hasura delivers it out-of-band with its own retry policy, so a

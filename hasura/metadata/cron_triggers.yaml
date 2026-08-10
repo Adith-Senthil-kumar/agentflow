@@ -1,5 +1,5 @@
 - name: scheduled_workflow_dispatch
-  webhook: '{{ACTION_BASE_URL}}/api/cron/dispatch'
+  webhook: '{{ACTION_BASE_URL}}/cron/dispatch'
   schedule: '* * * * *'
   include_in_metadata: true
   payload: {}
@@ -10,7 +10,7 @@
     tolerance_seconds: 21600
   headers:
     - name: x-agentflow-secret
-      value_from_env: AGENTFLOW_WEBHOOK_SECRET
+      value_from_env: NHOST_WEBHOOK_SECRET
   comment: >-
     Fires every minute. The dispatcher reads workflow_triggers of type
     `scheduled`, evaluates each row's own cron expression against the current

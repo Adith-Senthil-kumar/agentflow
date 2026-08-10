@@ -2,11 +2,11 @@ actions:
   - name: triggerWorkflowRun
     definition:
       kind: synchronous
-      handler: '{{ACTION_BASE_URL}}/api/actions/trigger-workflow-run'
+      handler: '{{ACTION_BASE_URL}}/actions/trigger-workflow-run'
       forward_client_headers: false
       headers:
         - name: x-agentflow-secret
-          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+          value_from_env: NHOST_WEBHOOK_SECRET
       timeout: 30
     permissions:
       - role: user
@@ -19,11 +19,11 @@ actions:
   - name: approveStep
     definition:
       kind: synchronous
-      handler: '{{ACTION_BASE_URL}}/api/actions/approve-step'
+      handler: '{{ACTION_BASE_URL}}/actions/approve-step'
       forward_client_headers: false
       headers:
         - name: x-agentflow-secret
-          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+          value_from_env: NHOST_WEBHOOK_SECRET
       timeout: 30
     permissions:
       - role: user
@@ -35,11 +35,11 @@ actions:
   - name: triggerWorkflowByWebhook
     definition:
       kind: synchronous
-      handler: '{{ACTION_BASE_URL}}/api/actions/trigger-by-webhook'
+      handler: '{{ACTION_BASE_URL}}/actions/trigger-by-webhook'
       forward_client_headers: false
       headers:
         - name: x-agentflow-secret
-          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+          value_from_env: NHOST_WEBHOOK_SECRET
       timeout: 30
     permissions:
       - role: public
@@ -51,11 +51,11 @@ actions:
   - name: getWebhookEndpoint
     definition:
       kind: synchronous
-      handler: '{{ACTION_BASE_URL}}/api/actions/get-webhook-endpoint'
+      handler: '{{ACTION_BASE_URL}}/actions/get-webhook-endpoint'
       forward_client_headers: false
       headers:
         - name: x-agentflow-secret
-          value_from_env: AGENTFLOW_WEBHOOK_SECRET
+          value_from_env: NHOST_WEBHOOK_SECRET
       timeout: 15
       type: query
     permissions:
