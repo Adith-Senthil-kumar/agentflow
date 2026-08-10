@@ -8,8 +8,9 @@ Built on **nhost** (PostgreSQL + Hasura + Auth), **Hasura GraphQL Engine**
 (queries, mutations, subscriptions, Actions, Event Triggers, Cron Triggers), and
 **Next.js**.
 
-- **Live app:** _see the deployment section below_
+- **Live app:** **https://agentflow-beta-jet.vercel.app**
 - **Design write-up:** [`docs/DESIGN.md`](docs/DESIGN.md)
+- **Sign in with any account in the table below** — password `Password123!`
 
 ---
 
@@ -169,8 +170,11 @@ the substitution block in that script and the tracked metadata applies unchanged
 4. Start the same workflow without a button: `npm run demo:webhook`, or use the
    **insert watched record** control on the workflow page to fire the database-event
    trigger. Both produce a new run in the history, live.
-5. Sign in as **`viewer-a@agentflow.test`** — the Run button is gone, and calling
-   `triggerWorkflowRun` directly is refused by the handler.
+5. Sign in as **`viewer-a@agentflow.test`** — Run is disabled and says why, step
+   editing is gone, and calling `triggerWorkflowRun` directly is refused by the
+   handler regardless. (The brief says "hidden"; a disabled control that states the
+   rule is more useful to a reviewer than an absent one, and the enforcement is
+   server-side either way.)
 6. Sign in as **`owner-b@agentflow.test`** and paste any Org A id into the URL —
    `/org/<A>`, `/org/<A>/workflow/<A>`, `/run/<A>`. Each reports no access, because
    the row permission returned nothing. `npm run verify` asserts the same thing
