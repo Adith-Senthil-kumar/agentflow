@@ -43,7 +43,18 @@ export async function withRetry<T>(
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    if (onAttempt) await onAttempt(attempt);
+    // Recording the attempt is bookkeeping, and bookkeeping must never be able
+    // to fail the work it describes. This write is a network call to Hasura; if
+    // it were awaited bare, a transient blip would escape the retry loop and
+    // fail the step outright — with the raw transport error, unretried, and the
+    // persisted attempt counter left behind at the previous value.
+    if (onAttempt) {
+      try {
+        await onAttempt(attempt);
+      } catch (err) {
+        console.warn('[retry] could not persist attempt counter', err);
+      }
+    }
     try {
       return await fn(attempt);
     } catch (err) {
