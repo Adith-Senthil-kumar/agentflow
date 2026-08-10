@@ -2,7 +2,8 @@
 
 import { useQuery } from '@apollo/client/react';
 import Link from 'next/link';
-import { useParams, usePathname } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { MY_ORGS, ORG_USAGE } from '@/lib/gql';
 import type { OrgRole } from '@/lib/types';
 import { useAuth } from './providers';
@@ -78,10 +79,26 @@ function QuotaMeter({ orgId }: { orgId: string }) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { email, signOut } = useAuth();
+  const { email, session, loading, signOut } = useAuth();
   const { memberships } = useMyOrgs();
   const params = useParams<{ orgId?: string }>();
   const pathname = usePathname();
+  const router = useRouter();
+
+  // Every page below the shell is authenticated. Without this, signing out
+  // while on a run or workflow page leaves the last render on screen — the
+  // queries are dead and the cache is cleared, but the stale markup stays put.
+  useEffect(() => {
+    if (!loading && !session) router.replace('/');
+  }, [loading, session, router]);
+
+  if (!loading && !session) {
+    return (
+      <div className="grid min-h-screen place-items-center">
+        <Label>signed out — returning to sign in</Label>
+      </div>
+    );
+  }
 
   const activeOrgId =
     params?.orgId ?? memberships.find((m) => pathname.includes(m.org.id))?.org.id;
