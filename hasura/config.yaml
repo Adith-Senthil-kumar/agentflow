@@ -1,5 +1,8 @@
 version: 3
-endpoint: https://jmrdefqlbcncyooejrml.hasura.ap-south-1.nhost.run
+# Endpoint and admin secret are supplied per-invocation by scripts/hasura-apply.sh
+# from your local .env.local, so nothing environment-specific is committed here.
+# The placeholder below is only what `hasura console` falls back to.
+endpoint: http://localhost:8080
 metadata_directory: metadata
 migrations_directory: migrations
 actions:
