@@ -165,9 +165,11 @@ npm run hasura:apply
 
 ### 4. Deploy the frontend
 
-Any Vercel import of this repo works. It needs only
-`NEXT_PUBLIC_NHOST_SUBDOMAIN` and `NEXT_PUBLIC_NHOST_REGION` — no secrets,
-because the browser talks to Hasura with the user's own JWT and nothing else.
+Any Vercel import of this repo works. It needs exactly two environment
+variables, `NEXT_PUBLIC_NHOST_SUBDOMAIN` and `NEXT_PUBLIC_NHOST_REGION`, and
+**no secrets at all** — the admin secret and the LLM key live only in the nhost
+functions runtime, and the browser talks to Hasura with the signed-in user's own
+JWT. A leak of the frontend deployment's configuration would expose nothing.
 
 ### A note on `{{ACTION_BASE_URL}}`
 

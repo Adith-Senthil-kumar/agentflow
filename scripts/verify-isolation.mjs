@@ -10,9 +10,14 @@
  *   npm run verify
  */
 
+import { setDefaultResultOrder } from 'node:dns';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Some networks resolve nhost to an IPv6 address that Node reaches less
+// reliably than curl does. Prefer IPv4 so the suite behaves the same everywhere.
+setDefaultResultOrder('ipv4first');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -66,16 +71,37 @@ async function gql(token, query, variables = {}) {
   return res.json();
 }
 
-async function signIn(email) {
-  const res = await fetch(`${AUTH_URL}/signin/email-password`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: PASSWORD }),
-  });
-  const body = await res.json();
-  const token = body?.session?.accessToken;
-  if (!token) throw new Error(`Could not sign in as ${email}: ${JSON.stringify(body)}`);
-  return token;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Signs in, retrying on transport errors and empty bodies.
+ *
+ * nhost rate-limits its auth endpoints, and this script signs four users in
+ * every time it runs, so a burst of consecutive runs can trip the limit and get
+ * a closed socket rather than a clean error. Backing off keeps the suite
+ * dependable enough to run repeatedly.
+ */
+async function signIn(email, attempts = 5) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const res = await fetch(`${AUTH_URL}/signin/email-password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password: PASSWORD }),
+      });
+      const text = await res.text();
+      if (!text) throw new Error(`empty response (HTTP ${res.status})`);
+      const body = JSON.parse(text);
+      const token = body?.session?.accessToken;
+      if (!token) throw new Error(JSON.stringify(body));
+      return token;
+    } catch (err) {
+      lastError = err;
+      if (attempt < attempts) await sleep(3000 * attempt);
+    }
+  }
+  throw new Error(`Could not sign in as ${email} after ${attempts} attempts: ${lastError}`);
 }
 
 const isPermissionError = (r) =>
@@ -84,9 +110,14 @@ const isPermissionError = (r) =>
 
 async function main() {
   console.log('\nSigning in as the four demo users…');
+  // Spaced out: nhost rate-limits auth per IP, and four sign-ins back to back
+  // from a machine that has already run this suite a few times can trip it.
   const ownerA = await signIn('owner-a@agentflow.test');
+  await sleep(1200);
   const editorA = await signIn('editor-a@agentflow.test');
+  await sleep(1200);
   const viewerA = await signIn('viewer-a@agentflow.test');
+  await sleep(1200);
   const ownerB = await signIn('owner-b@agentflow.test');
 
   // Setup uses admin only to *find* the ids an attacker would be guessing.
